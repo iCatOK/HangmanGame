@@ -4,18 +4,18 @@ namespace ChatHubApplication
 {
     public enum UserStatus : byte
     {
-        NotReady = 0,
-        Ready = 1,
-        InGame = 2,
+        Disconnected = 0,
+        NotReady = 1,
+        Ready = 2,
+        InGame = 3,
     }
 
-    public enum GameStatus : byte
+    public enum RoomStatus : byte
     {
         Lobby = 0,
         InGame = 1,
     }
 
-    [Index(nameof(ConnectionId), IsUnique = true)]
     public class Connection
     {
         public int Id { get; set; }
@@ -36,6 +36,7 @@ namespace ChatHubApplication
     {
         public int Id { get; set; }
         public string RoomName { get; set; }
+        public RoomStatus GameStatus { get; set; }
         public virtual ICollection<Connection> Connections { get; set; }
     }
 
@@ -47,8 +48,6 @@ namespace ChatHubApplication
 
         public GameRoom GameRoom { get; set; }
 
-        public GameStatus GameStatus { get; set; }
-
         public int GuessingConnectionId { get; set; }
 
         public Connection GuessingConnection { get; set; }
@@ -56,6 +55,8 @@ namespace ChatHubApplication
         public string GuessingWord { get; set; }
 
         public string WinWord { get; set; }
+
+        public int AttemptCount { get; set; }
     }
 
     public class DatabaseContext : DbContext

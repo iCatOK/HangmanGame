@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>SignalR Chat - Чатик</title>
+    <title>SignalR Chat - Заколебал</title>
 </head>
 <body>
     <div id="loginBlock">
@@ -15,6 +15,8 @@
         Введите название комнаты:<br />
         <input id="groupName" type="text" />
         <input id="enterGroupBtn" type="button" value="Войти в комнату" />
+        <input id="exitGroupBtn" type="button" value="Выйти из комнаты" hidden/>
+        <input id="readyBtn" type="button" value="Готов" hidden/>
     </div><br />
 
     <div id="header"></div><br />
@@ -32,6 +34,8 @@
 
         let userName = '';
         let groupName = '';
+        let readyState = false;
+        let inGame = false;
 
         // получение сообщения от сервера (чат)
         hubConnection.on('Send', function (message, userName) {
@@ -50,34 +54,109 @@
 
         });
 
-        // сервер: ответ при вступлении в группу конкретного пользователя
-        hubConnection.on('OnGroupEnter', function (response) {
+        // событие входа в комнату
+        hubConnection.on("RoomEnteredEvent", function () {
+            var exitBtn = document.getElementById("exitGroupBtn");
+            var readyBtn = document.getElementById("readyBtn");
+            exitBtn.hidden = false;
+            readyBtn.hidden = false;
+        });
 
-            // создает элемент <p> для сообщения ответа сервера о вступлении в группу
-            let elem = document.createElement("p");
-            elem.appendChild(document.createTextNode(response));
+        // событие выхода из комнаты
+        hubConnection.on("RoomExitedEvent", function () {
+            var exitBtn = document.getElementById("exitGroupBtn");
+            var readyBtn = document.getElementById("readyBtn");
+            exitBtn.hidden = true;
+            readyBtn.hidden = true;
+        });
 
-            var firstElem = document.getElementById("chatroom").firstChild;
-            document.getElementById("chatroom").insertBefore(elem, firstElem);
+        // событие отработки нажатия готово
+        hubConnection.on("ReadyStateUpdate", function (isReady) {
+            readyState = isReady;
+            var readyBtn = document.getElementById("readyBtn");
 
+            if (readyState) {
+                readyBtn.value = "Не готов"
+            } else {
+                readyBtn.value = "Готов"
+            }
+        });
+
+        // событие для обновления счётчика готовых
+        hubConnection.on("UpdateReadyCounter", function (roomUserCount, roomReadyCount) {
+            userCount = roomUserCount;
+            readyCount = roomReadyCount;
+            var headerString = `Комната ${groupName} (${readyCount}/${userCount})`;
+            document.getElementById("header").innerHTML = '<h3>' + headerString + '</h3>';
+        });
+
+        // событие для обновления хедера при начале игры
+        hubConnection.on("UpdateGameHeader", function (guessingWord) {
+            var headerString = `Комната ${groupName} (в игре): ${guessingWord}`;
+            document.getElementById("header").innerHTML = '<h3>' + headerString + '</h3>';
+        });
+
+        // событие начала игры
+        hubConnection.on("GameStart", function () {
+            var senButton = document.getElementById("sendBtn");
+            var readyBtn = document.getElementById("readyBtn");
+            senButton.disabled = true;
+            readyBtn.hidden = true;
+            inGame = true;
+        });
+
+        // событие получения права на ход
+        hubConnection.on("TurnEvent", function () {
+            var senButton = document.getElementById("sendBtn");
+            senButton.disabled = false;
+        });
+
+        // событие окончания хода
+        hubConnection.on("TurnOverEvent", function () {
+            var senButton = document.getElementById("sendBtn");
+            senButton.disabled = true;
+        });
+
+        // событие начала игры
+        hubConnection.on("GameOver", function () {
+            var sendButton = document.getElementById("sendBtn");
+            sendButton.disabled = false;
+            readyBtn.hidden = false;
+            readyBtn.value = "Не готов";
+            inGame = false;
         });
 
         // установка имени пользователя
         document.getElementById("loginBtn").addEventListener("click", function (e) {
             userName = document.getElementById("userName").value;
-            document.getElementById("header").innerHTML = '<h3>Welcome ' + userName + '</h3>';
+            hubConnection.invoke("Authorize", userName);
         });
 
         // вход в группу
         document.getElementById("enterGroupBtn").addEventListener("click", function (e) {
             groupName = document.getElementById("groupName").value;
-            hubConnection.invoke("EnterGroup", groupName);
+            hubConnection.invoke("AddToRoom", groupName, userName);
+        });
+
+        // выход из группы
+        document.getElementById("exitGroupBtn").addEventListener("click", function (e) {
+            hubConnection.invoke("RemoveFromRoom", userName);
+        });
+
+        // нажатие кнопки готов
+        document.getElementById("readyBtn").addEventListener("click", function (e) {
+            hubConnection.invoke("Ready", !readyState, userName);
         });
 
         // отправка сообщения на сервер
         document.getElementById("sendBtn").addEventListener("click", function (e) {
-            let message = document.getElementById("message").value;
-            hubConnection.invoke("Send", message, userName);
+            let msg = document.getElementById("message");
+            if (inGame) {
+                hubConnection.invoke("TurnAttempt", msg.value, userName);
+            } else {
+                hubConnection.invoke("Send", msg.value, userName);
+            }
+            msg.value = "";
         });
 
         hubConnection.start();

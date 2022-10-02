@@ -1,32 +1,38 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+﻿using System.Text;
 
 namespace ChatHubApplication
 {
-    [Table("hangman_games")]
-    public class HangmanGames
+    public class HangmanGameHelper
     {
-        [Column("id")]
-        public int Id { get; set; }
+        public static bool CheckGuess(string guess, GameSession session)
+        {
+            if (session == null) return false;
 
-        [Column("game_state")]
-        public int GameState { get; set; }
+            var guessingWord = session.GuessingWord;
+            var winWord = session.WinWord;
+            
+            var guessWordBuilder = new StringBuilder(guessingWord);
+            if (guess.Length == 1 && winWord.Contains(guess[0]))
+            {
+                var correctChar = guess[0];
+                for (int i = 0; i < winWord.Length; i++)
+                {
+                    if (winWord[i] == correctChar)
+                    {
+                        guessWordBuilder[i] = correctChar;
+                    }
+                }
+                session.GuessingWord = guessWordBuilder.ToString();
+                return true;
+            }
+            
+            if (guess.Length > 1 && guess.Equals(winWord))
+            {
+                session.GuessingWord = session.WinWord;
+                return true;
+            }
 
-        [Column("gamers_count")]
-        public int GamersCount { get; set; }
-
-        [Column("ready_gamers_count")]
-        public int ReadyGamersCount { get; set; }
-
-        [Column("win_word")]
-        public string? WinWord { get; set; }
-
-        [Column("guessing_word")]
-        public string? GuessingWord { get; set; }
-
-        [Column("room_identifier")]
-        public string? RoomIdentifier { get; set; }
-
-        [Column("guessing_connection_id")]
-        public string? GuessingConnectionId { get; set; }
+            return false;
+        }
     }
 }
