@@ -4,6 +4,16 @@ namespace ChatHubApplication
 {
     public class HangmanGameHelper
     {
+        public static bool AlreadyGuessed(string guess, GameSession session)
+        {
+            var guessingWord = session.GuessingWord;
+
+            if (guess.Length == 1 && guessingWord.Contains(guess[0]))
+                return true;
+
+            return false;
+        }
+        
         public static bool CheckGuess(string guess, GameSession session)
         {
             if (session == null) return false;

@@ -425,7 +425,13 @@ namespace ChatHubApplication
                             "Send",
                             $"{attemptString} {guess}!", name);
 
-                if (HangmanGameHelper.CheckGuess(guess, gameSession))
+                if (HangmanGameHelper.AlreadyGuessed(guess, gameSession))
+                {
+                    await Clients.Groups(roomName).SendAsync(
+                            "Send",
+                            $"Данная буква уже отгадана! Слово: {gameSession.GuessingWord}. Следующим отгадывает {nextGamer.Name}.", roomName);
+                }
+                else if (HangmanGameHelper.CheckGuess(guess, gameSession))
                 {
                     if (gameSession.GuessingWord == gameSession.WinWord)
                     {
