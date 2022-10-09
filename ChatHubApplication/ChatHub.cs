@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using System.Xml.Linq;
 
 namespace ChatHubApplication
 {
@@ -45,7 +44,8 @@ namespace ChatHubApplication
                         {
                             var roomName = connection.GameRoom.RoomName;
                             await Clients.OthersInGroup(roomName).SendAsync("Send", $"{connection.Name} отключился от хаба.", roomName);
-
+                            
+                            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomName);
                             await UpdateReadyCounter(db, roomName);
                         }
                     }
@@ -261,8 +261,12 @@ namespace ChatHubApplication
 
                 if (connection != null)
                 {
-                    if (connection.UserStatus == UserStatus.Disconnected ||
-                        connection.UserStatus == UserStatus.InGame ||
+                    if (connection.GameRoom != null && connection.GameRoom.GameStatus == RoomStatus.InGame)
+                    {
+                        return;
+                    }
+
+                    if (connection.UserStatus == UserStatus.Disconnected || connection.UserStatus == UserStatus.InGame ||
                         connection.GameRoom == null)
                     {
                         return;
@@ -285,9 +289,14 @@ namespace ChatHubApplication
                     var readyCount = await db.Connections.CountAsync(
                         c => c.UserStatus == UserStatus.Ready && c.GameRoom != null && c.GameRoom.RoomName == roomName);
 
-                    if (readyCount > userCount / 2 && readyCount > 1)
+                    var gameRoom = db.GameRooms.SingleOrDefault(r => r.RoomName == roomName);
+
+                    if (readyCount > userCount / 2 && readyCount > 1 && gameRoom.GameStatus == RoomStatus.Lobby)
                     {
-                        await CountDown(connection);
+                        gameRoom.GameStatus = RoomStatus.CountDown;
+                        db.GameRooms.Update(gameRoom);
+                        await db.SaveChangesAsync();
+                        await GameStartCountDown(connection);
                     }
                 }
             }
@@ -318,7 +327,7 @@ namespace ChatHubApplication
             }
         }
 
-        public async Task CountDown(Connection connection)
+        public async Task GameStartCountDown(Connection connection)
         {
             using (var db = new DatabaseContext())
             {
@@ -378,7 +387,7 @@ namespace ChatHubApplication
                 await Clients.Groups(room.RoomName)
                     .SendAsync("Send", $"Игра началась. Загаданное слово: {guessingWord}. Отгадывать начинает {firstGamer.Name}." +
                     $" Букв: {guessingWord.Length}", connection.GameRoom.RoomName);
-                
+
                 await Clients.Groups(room.RoomName).SendAsync("GameStart");
                 await Clients.Groups(room.RoomName).SendAsync("UpdateGameHeader", guessingWord);
                 await Clients.Client(firstGamer.ConnectionId).SendAsync("TurnEvent");
@@ -420,17 +429,9 @@ namespace ChatHubApplication
                 {
                     if (gameSession.GuessingWord == gameSession.WinWord)
                     {
-                        var winWord = gameSession.WinWord.ToUpper();
-                        
-                        gamers.ForEach(g => g.UserStatus = UserStatus.NotReady);
-                        gameRoom.GameStatus = RoomStatus.Lobby;
-                        db.GameSessions.Remove(gameSession);
-                        await db.SaveChangesAsync();
+                        await SetLobbyState(db, gameRoom, gamers, gameSession);
 
-                        await Clients.Groups(roomName).SendAsync(
-                            "Send",
-                            $"Игра окончена, загаданное слово - {winWord}! Победил {name}!", roomName);
-                        await Clients.Groups(roomName).SendAsync("GameOver", winWord);
+                        await EndGameMessage(db, roomName, gameSession, $"Победил {name}!");
                         await UpdateReadyCounter(db, roomName);
                         return;
                     }
@@ -455,6 +456,89 @@ namespace ChatHubApplication
                 await Clients.Caller.SendAsync("TurnOverEvent");
                 await Clients.Client(nextGamer.ConnectionId).SendAsync("TurnEvent");
             }
+        }
+
+        public async Task GiveUp(bool giveUpFlag, string name)
+        {
+            using (var db = new DatabaseContext())
+            {
+                var connection = GetContextConnection(name);
+
+                if (connection != null)
+                {
+                    if (connection.UserStatus != UserStatus.InGame || connection.GameRoom == null) return;
+
+                    connection.GiveUpFlag = giveUpFlag;
+                    var giveUpString = giveUpFlag ? "сдаётся" : "отказался сдаваться";
+                    var roomName = connection.GameRoom.RoomName;
+
+                    db.Connections.Update(connection);
+                    await db.SaveChangesAsync();
+
+                    await Clients.Caller.SendAsync("GiveUpUpdate", giveUpFlag);
+
+                    var inGameCount = await db.Connections.CountAsync(
+                        c => c.UserStatus == UserStatus.InGame && c.GameRoom != null && c.GameRoom.RoomName == roomName);
+                    var giveUpCount = await db.Connections.CountAsync(
+                        c => c.UserStatus == UserStatus.InGame && c.GiveUpFlag && c.GameRoom != null && c.GameRoom.RoomName == roomName);
+
+                    if (giveUpCount > inGameCount / 2)
+                    {
+                        await GameOver(connection, db);
+                    } else
+                    {
+                        await Clients.Groups(connection.GameRoom.RoomName)
+                            .SendAsync("Send", $"{name} {giveUpString}! " +
+                            $"Сдалось {giveUpCount}/{inGameCount}. Окончание игры через {inGameCount / 2 - giveUpCount + 1} сдачи",
+                            connection.GameRoom.RoomName);
+                    }
+                }
+            }
+        }
+
+        public async Task GameOver(Connection connection, DatabaseContext db)
+        {
+            var gameRoom = connection.GameRoom;
+            if (gameRoom == null || gameRoom.GameStatus == RoomStatus.Lobby) return;
+
+            var gamers = db.Connections
+                .Where(c => c.GameRoomId == gameRoom.Id && c.UserStatus == UserStatus.InGame)
+                .ToList();
+            if (gamers.Count < 2) return;
+
+            var roomName = gameRoom.RoomName;
+
+            var gameSession = db.GameSessions.SingleOrDefault(s => s.GameRoomId == gameRoom.Id);
+            if (gameSession == null) return;
+
+            await SetLobbyState(db, gameRoom, gamers, gameSession);
+            await EndGameMessage(db, roomName, gameSession, "Большинство участников сдалось!");
+            return;
+
+        }
+
+        private async Task EndGameMessage(DatabaseContext db, string roomName, GameSession gameSession, string endGameMessage)
+        {
+            var winWord = gameSession.WinWord.ToUpper();
+            await Clients.Groups(roomName).SendAsync(
+                "Send",
+                $"Игра окончена, загаданное слово - {winWord}! {endGameMessage}", roomName);
+            await Clients.Groups(roomName).SendAsync("GameOver", winWord);
+            await UpdateReadyCounter(db, roomName);
+        }
+
+        private static async Task SetLobbyState(DatabaseContext db, GameRoom gameRoom, List<Connection> gamers, GameSession gameSession)
+        {
+            gamers.ForEach(g =>
+            {
+                g.UserStatus = UserStatus.NotReady;
+                g.GiveUpFlag = false;
+            });
+
+            gameRoom.GameStatus = RoomStatus.Lobby;
+            db.GameRooms.Update(gameRoom);
+            db.GameSessions.Remove(gameSession);
+            await db.SaveChangesAsync();
         }
     }
 }

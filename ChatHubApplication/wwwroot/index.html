@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>SignalR Chat - Заколебал</title>
+    <title>Игра в слова</title>
 </head>
 <body>
     <div id="loginBlock">
@@ -17,6 +17,7 @@
         <input id="enterGroupBtn" type="button" value="Войти в комнату" />
         <input id="exitGroupBtn" type="button" value="Выйти из комнаты" hidden/>
         <input id="readyBtn" type="button" value="Готов" hidden/>
+        <input id="giveUpBtn" type="button" value="Сдаться" hidden/>
     </div><br />
 
     <div id="header"></div><br />
@@ -36,6 +37,7 @@
         let groupName = '';
         let readyState = false;
         let inGame = false;
+        let giveUpState = false;
 
         // получение сообщения от сервера (чат)
         hubConnection.on('Send', function (message, userName) {
@@ -82,6 +84,18 @@
             }
         });
 
+        // событие отработки нажатия готово
+        hubConnection.on("GiveUpUpdate", function (isGiveUp) {
+            giveUpState = isGiveUp;
+            var giveUpBtn = document.getElementById("giveUpBtn");
+
+            if (giveUpState) {
+                giveUpBtn.value = "Отказаться от сдачи"
+            } else {
+                giveUpBtn.value = "Сдаться"
+            }
+        });
+
         // событие для обновления счётчика готовых
         hubConnection.on("UpdateReadyCounter", function (roomUserCount, roomReadyCount) {
             userCount = roomUserCount;
@@ -100,8 +114,16 @@
         hubConnection.on("GameStart", function () {
             var senButton = document.getElementById("sendBtn");
             var readyBtn = document.getElementById("readyBtn");
-            senButton.disabled = true;
-            readyBtn.hidden = true;
+            var giveUpBtn = document.getElementById("giveUpBtn");
+
+            if (readyState) {
+                senButton.disabled = true;
+                readyBtn.hidden = true;
+                giveUpBtn.hidden = false;
+            } else {
+                readyBtn.disabled = true;
+            }
+
             inGame = true;
         });
 
@@ -117,13 +139,26 @@
             senButton.disabled = true;
         });
 
-        // событие начала игры
+        // событие конца игры
         hubConnection.on("GameOver", function () {
             var sendButton = document.getElementById("sendBtn");
-            sendButton.disabled = false;
-            readyBtn.hidden = false;
-            readyBtn.value = "Не готов";
+            var readyBtn = document.getElementById("readyBtn");
+            var giveUpBtn = document.getElementById("giveUpBtn");
+
+            if (readyState) {
+                sendButton.disabled = false;
+                readyBtn.hidden = false;
+                giveUpBtn.hidden = true;
+            } else {
+                readyBtn.disabled = false;
+            }
+            
+            readyBtn.value = "Готов";
+            giveUpBtn.value = "Сдаться";
+
             inGame = false;
+            readyState = false;
+            giveUpState = false;
         });
 
         // установка имени пользователя
@@ -148,10 +183,15 @@
             hubConnection.invoke("Ready", !readyState, userName);
         });
 
+        // нажатие кнопки сдаться
+        document.getElementById("giveUpBtn").addEventListener("click", function (e) {
+            hubConnection.invoke("GiveUp", !giveUpState, userName);
+        });
+
         // отправка сообщения на сервер
         document.getElementById("sendBtn").addEventListener("click", function (e) {
             let msg = document.getElementById("message");
-            if (inGame) {
+            if (readyState && inGame) {
                 hubConnection.invoke("TurnAttempt", msg.value, userName);
             } else {
                 hubConnection.invoke("Send", msg.value, userName);

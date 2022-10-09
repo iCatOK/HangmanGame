@@ -14,6 +14,7 @@ namespace ChatHubApplication
     {
         Lobby = 0,
         InGame = 1,
+        CountDown = 2,
     }
 
     public class Connection
@@ -25,6 +26,8 @@ namespace ChatHubApplication
         public string? Name { get; set; }
 
         public UserStatus UserStatus { get; set; }
+
+        public bool GiveUpFlag { get; set; }
 
         public int? GameRoomId { get; set; }
 
