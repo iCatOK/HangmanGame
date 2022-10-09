@@ -3,6 +3,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ChatHubApplication
 {
+    public enum StatusCode
+    {
+        Success = 200,
+        Error = 400
+    }
+    
     public class ChatHub: Hub
     {
         private const string LobbyName = "Хаб";
@@ -68,13 +74,13 @@ namespace ChatHubApplication
 
                 if (contextConnection != null && contextConnection.Name == name)
                 {
-                    await Clients.Caller.SendAsync("Send", $"Вы уже авторизованы как {name}.", LobbyName);
+                    await SendAuthorizeResponse(StatusCode.Error, $"Вы уже авторизованы как {name}.");
                     return;
                 }
                 
                 if (connectionToAuth != null && connectionToAuth.UserStatus != UserStatus.Disconnected)
                 {
-                    await Clients.Caller.SendAsync("Send", $"Ник {name} уже занят. Выбери другой.", LobbyName);
+                    await SendAuthorizeResponse(StatusCode.Error, $"Ник {name} уже занят. Выбери другой.");
                     return;
                 }
 
@@ -88,9 +94,11 @@ namespace ChatHubApplication
                     contextConnection.UserStatus = UserStatus.NotReady;
                     var prevName = contextConnection.Name;
                     contextConnection.Name = name;
-                    await Clients.Caller.SendAsync("Send", $"Добро пожаловать, {contextConnection.Name}.", LobbyName);
+
+                    await SendAuthorizeResponse(StatusCode.Success, null);
                     await EnterToDisconnectedRoom(contextConnection, prevName);
                     await db.SaveChangesAsync();
+
                     return;
                 }
 
@@ -104,7 +112,7 @@ namespace ChatHubApplication
                     };
 
                     await db.Connections.AddAsync(connectionToAuth);
-                    await Clients.Caller.SendAsync("Send", $"Добро пожаловать, {connectionToAuth.Name}.", LobbyName);
+                    await SendAuthorizeResponse(StatusCode.Success, null);
                 }
                 else
                 {
@@ -116,6 +124,11 @@ namespace ChatHubApplication
 
                 await db.SaveChangesAsync();
             }
+        }
+
+        private async Task SendAuthorizeResponse(StatusCode code, string? message)
+        {
+            await Clients.Caller.SendAsync("AuthorizeResponse", code, message);
         }
 
         private async Task EnterToDisconnectedRoom(Connection? connection, string? prevName = null)

@@ -34,14 +34,19 @@
             .build();
 
         let userName = '';
-        let groupName = '';
+        let groupName = 'Хаб';
         let readyState = false;
         let inGame = false;
         let giveUpState = false;
 
-        // получение сообщения от сервера (чат)
-        hubConnection.on('Send', function (message, userName) {
+        const ResponseCode = {
+            Success: 200,
+            Error: 400
+        }
 
+        let sendToChat = function (message, userName) {
+
+            console.log(message)
             // создаем элемент <b> для имени пользователя
             let userNameElem = document.createElement("b");
             userNameElem.appendChild(document.createTextNode(userName + ': '));
@@ -54,9 +59,24 @@
             var firstElem = document.getElementById("chatroom").firstChild;
             document.getElementById("chatroom").insertBefore(elem, firstElem);
 
+        };
+
+        // получение сообщения от сервера (чат)
+        hubConnection.on('Send', sendToChat);
+
+        // событие авторизации (ответ от сервера)
+        hubConnection.on("AuthorizeResponse", function (code, message) {
+            switch (code) {
+                case ResponseCode.Error:
+                    sendToChat(`Не удалось авторизоваться: ${message}`, groupName);
+                    break;
+                case ResponseCode.Success:
+                    sendToChat(`Добро пожаловать, ${userName}.`, groupName);
+                    break;
+            }
         });
 
-        // событие входа в комнату
+        // событие входа пользователя в комнату
         hubConnection.on("RoomEnteredEvent", function () {
             var exitBtn = document.getElementById("exitGroupBtn");
             var readyBtn = document.getElementById("readyBtn");
@@ -64,12 +84,13 @@
             readyBtn.hidden = false;
         });
 
-        // событие выхода из комнаты
+        // событие выхода пользователя из комнаты
         hubConnection.on("RoomExitedEvent", function () {
             var exitBtn = document.getElementById("exitGroupBtn");
             var readyBtn = document.getElementById("readyBtn");
             exitBtn.hidden = true;
             readyBtn.hidden = true;
+            groupName = 'Хаб';
         });
 
         // событие отработки нажатия готово
